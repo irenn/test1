@@ -1,10 +1,14 @@
 %% WSN Energy Protocol — Two-Zone PCH (X-coordinate based)
 %
-%  Zone 1 : X <  50  →  PCH1 (fixed, closest to zone centre)
-%  Zone 2 : X >= 50  →  PCH2 (fixed, closest to zone centre)
+%  Network divided vertically: Zone 1 (X < 50) | Zone 2 (X >= 50)
 %
-%  Energy parameters are kept identical to original_protocol_save.m so
-%  that the two simulations can be compared with compare_protocols.m.
+%  Each round the alive node with the HIGHEST residual energy in each
+%  zone is elected as PCH for that round.  The role therefore rotates
+%  naturally among all nodes, spreading the relay cost evenly and
+%  preventing any single node from burning out early.
+%
+%  All energy constants are identical to original_protocol_save.m so
+%  results are directly comparable via compare_protocols.m.
 %
 %  Outputs
 %    two_zone_x_results.mat  — loaded by compare_protocols.m
@@ -12,26 +16,26 @@
 
 clear all; close all; clc;
 
-%% ── Parameters (match original protocol) ────────────────────────────────
+%% ── Parameters (identical to original_protocol_save.m) ──────────────────
 n            = 100;
-Eo           = 0.5;            % Initial node energy (J)
-ETX          = 50e-9;          % Tx electronics (J/bit)
-ERX          = 50e-9;          % Rx electronics (J/bit)
-Efs          = 10e-12;         % Free-space amp  (J/bit/m²)
-Emp          = 0.0013e-12;     % Multipath amp   (J/bit/m⁴)
-EDA          = 5e-9;           % Data aggregation (J/bit)
-do           = 87.7;           % Threshold distance (m)  — same as original
-packetLength = 4000;           % bits
-rmax         = 2000;           % rounds — same as original
+Eo           = 0.5;           % J  — initial node energy
+ETX          = 50e-9;         % J/bit
+ERX          = 50e-9;
+Efs          = 10e-12;        % J/bit/m²
+Emp          = 0.0013e-12;    % J/bit/m⁴
+EDA          = 5e-9;          % J/bit
+do           = 87.7;          % threshold distance (m)
+packetLength = 4000;          % bits
+rmax         = 2000;
 
-%% ── Network & Base Station ───────────────────────────────────────────────
-xm = 100; ym = 100;
-zone_boundary = 50;            % X-axis boundary between zones
+%% ── Network and Base Station ─────────────────────────────────────────────
+xm = 100;  ym = 100;
+zone_boundary = 50;           % vertical X-axis boundary
 
 BS.x = 0.5 * xm;
 BS.y = 1.75 * ym;
 
-%% ── Initialise Nodes ─────────────────────────────────────────────────────
+%% ── Initialise nodes ─────────────────────────────────────────────────────
 zone1_nodes = [];   % X <  50
 zone2_nodes = [];   % X >= 50
 
@@ -39,41 +43,20 @@ for i = 1:n
     S(i).xd     = rand() * xm;
     S(i).yd     = rand() * ym;
     S(i).E      = Eo;
-    S(i).G      = 0;
     S(i).type   = 'N';
     S(i).d_to_BS = sqrt((S(i).xd - BS.x)^2 + (S(i).yd - BS.y)^2);
 
     if S(i).xd < zone_boundary
-        S(i).zone   = 1;
+        S(i).zone = 1;
         zone1_nodes(end+1) = i;
     else
-        S(i).zone   = 2;
+        S(i).zone = 2;
         zone2_nodes(end+1) = i;
     end
 end
 
-%% ── Select PCH1 — zone 1 node closest to zone centre ────────────────────
-cx1 = zone_boundary / 2;   cy1 = ym / 2;   % centre of Zone 1
-min_d1 = inf;   PCH1_id = zone1_nodes(1);
-for i = zone1_nodes
-    d = sqrt((S(i).xd - cx1)^2 + (S(i).yd - cy1)^2);
-    if d < min_d1;  min_d1 = d;  PCH1_id = i;  end
-end
-S(PCH1_id).type = 'C';
-S(PCH1_id).E    = 2 * Eo;   % double energy as PCH
-
-%% ── Select PCH2 — zone 2 node closest to zone centre ────────────────────
-cx2 = zone_boundary + (xm - zone_boundary) / 2;   cy2 = ym / 2;
-min_d2 = inf;   PCH2_id = zone2_nodes(1);
-for i = zone2_nodes
-    d = sqrt((S(i).xd - cx2)^2 + (S(i).yd - cy2)^2);
-    if d < min_d2;  min_d2 = d;  PCH2_id = i;  end
-end
-S(PCH2_id).type = 'C';
-S(PCH2_id).E    = 2 * Eo;
-
-fprintf('PCH1 (X < 50)  at (%.2f, %.2f)\n', S(PCH1_id).xd, S(PCH1_id).yd);
-fprintf('PCH2 (X >= 50) at (%.2f, %.2f)\n', S(PCH2_id).xd, S(PCH2_id).yd);
+fprintf('Zone 1 (X <  50) : %d nodes\n', length(zone1_nodes));
+fprintf('Zone 2 (X >= 50) : %d nodes\n', length(zone2_nodes));
 
 %% ── Result arrays ────────────────────────────────────────────────────────
 ALIVE_2Z   = zeros(1, rmax);
@@ -84,10 +67,10 @@ PACKETS_2Z = zeros(1, rmax);
 transmissions = 0;
 first_dead    = 0;
 
-%% ── Main Simulation Loop ─────────────────────────────────────────────────
+%% ── Simulation loop ──────────────────────────────────────────────────────
 for r = 1:rmax
 
-    %% Count alive / dead / energy
+    %% 1) Count alive / dead / total energy ───────────────────────────────
     alive = 0;  dead = 0;  E_total = 0;
     for i = 1:n
         if S(i).E > 0
@@ -112,69 +95,94 @@ for r = 1:rmax
         break;
     end
 
-    %% Zone-1 nodes transmit to PCH1
+    %% 2) Elect PCH for each zone this round (highest residual energy) ────
+    %  This rotation distributes the heavy relay cost across all nodes.
+    PCH1 = 0;  maxE1 = 0;
     for i = zone1_nodes
-        if S(i).E > 0 && i ~= PCH1_id && S(PCH1_id).E > 0
-            d = sqrt((S(i).xd - S(PCH1_id).xd)^2 + (S(i).yd - S(PCH1_id).yd)^2);
-            if d <= do
-                e_tx = ETX * packetLength + Efs * packetLength * d^2;
-            else
-                e_tx = ETX * packetLength + Emp * packetLength * d^4;
-            end
-            S(i).E = S(i).E - e_tx;
-            if S(i).E <= 0
-                S(i).E = 0;
-            else
-                S(PCH1_id).E = S(PCH1_id).E - (ERX + EDA) * packetLength;
-                transmissions = transmissions + 1;
-            end
+        if S(i).E > maxE1
+            maxE1 = S(i).E;
+            PCH1  = i;
         end
     end
 
-    %% Zone-2 nodes transmit to PCH2
+    PCH2 = 0;  maxE2 = 0;
     for i = zone2_nodes
-        if S(i).E > 0 && i ~= PCH2_id && S(PCH2_id).E > 0
-            d = sqrt((S(i).xd - S(PCH2_id).xd)^2 + (S(i).yd - S(PCH2_id).yd)^2);
-            if d <= do
-                e_tx = ETX * packetLength + Efs * packetLength * d^2;
-            else
-                e_tx = ETX * packetLength + Emp * packetLength * d^4;
-            end
-            S(i).E = S(i).E - e_tx;
-            if S(i).E <= 0
-                S(i).E = 0;
-            else
-                S(PCH2_id).E = S(PCH2_id).E - (ERX + EDA) * packetLength;
-                transmissions = transmissions + 1;
-            end
+        if S(i).E > maxE2
+            maxE2 = S(i).E;
+            PCH2  = i;
         end
     end
 
-    %% PCH1 sends aggregated data to BS
-    if S(PCH1_id).E > 0
-        d_BS = S(PCH1_id).d_to_BS;
-        if d_BS <= do
-            e_tx = ETX * packetLength + Efs * packetLength * d_BS^2;
-        else
-            e_tx = ETX * packetLength + Emp * packetLength * d_BS^4;
+    %% 3) Zone-1 members → PCH1 ───────────────────────────────────────────
+    if PCH1 > 0
+        for i = zone1_nodes
+            if S(i).E > 0 && i ~= PCH1
+                d = sqrt((S(i).xd - S(PCH1).xd)^2 + (S(i).yd - S(PCH1).yd)^2);
+                if d > do
+                    e_tx = ETX*packetLength + Emp*packetLength*d^4;
+                else
+                    e_tx = ETX*packetLength + Efs*packetLength*d^2;
+                end
+
+                S(i).E = S(i).E - e_tx;
+                if S(i).E <= 0
+                    S(i).E = 0;
+                else
+                    % PCH receives and aggregates
+                    S(PCH1).E = max(0, S(PCH1).E - (ERX + EDA)*packetLength);
+                    transmissions = transmissions + 1;
+                end
+            end
         end
-        S(PCH1_id).E = max(0, S(PCH1_id).E - e_tx);
+
+        % PCH1 forwards aggregated data to BS
+        if S(PCH1).E > 0
+            d_BS = S(PCH1).d_to_BS;
+            if d_BS > do
+                e_fwd = ETX*packetLength + Emp*packetLength*d_BS^4;
+            else
+                e_fwd = ETX*packetLength + Efs*packetLength*d_BS^2;
+            end
+            S(PCH1).E = max(0, S(PCH1).E - e_fwd);
+        end
     end
 
-    %% PCH2 sends aggregated data to BS
-    if S(PCH2_id).E > 0
-        d_BS = S(PCH2_id).d_to_BS;
-        if d_BS <= do
-            e_tx = ETX * packetLength + Efs * packetLength * d_BS^2;
-        else
-            e_tx = ETX * packetLength + Emp * packetLength * d_BS^4;
+    %% 4) Zone-2 members → PCH2 ───────────────────────────────────────────
+    if PCH2 > 0
+        for i = zone2_nodes
+            if S(i).E > 0 && i ~= PCH2
+                d = sqrt((S(i).xd - S(PCH2).xd)^2 + (S(i).yd - S(PCH2).yd)^2);
+                if d > do
+                    e_tx = ETX*packetLength + Emp*packetLength*d^4;
+                else
+                    e_tx = ETX*packetLength + Efs*packetLength*d^2;
+                end
+
+                S(i).E = S(i).E - e_tx;
+                if S(i).E <= 0
+                    S(i).E = 0;
+                else
+                    S(PCH2).E = max(0, S(PCH2).E - (ERX + EDA)*packetLength);
+                    transmissions = transmissions + 1;
+                end
+            end
         end
-        S(PCH2_id).E = max(0, S(PCH2_id).E - e_tx);
+
+        % PCH2 forwards aggregated data to BS
+        if S(PCH2).E > 0
+            d_BS = S(PCH2).d_to_BS;
+            if d_BS > do
+                e_fwd = ETX*packetLength + Emp*packetLength*d_BS^4;
+            else
+                e_fwd = ETX*packetLength + Efs*packetLength*d_BS^2;
+            end
+            S(PCH2).E = max(0, S(PCH2).E - e_fwd);
+        end
     end
 
     PACKETS_2Z(r) = transmissions;
 
-    if mod(r, 500) == 0
+    if mod(r, 200) == 0
         fprintf('Round %4d | Alive: %3d | Dead: %3d | Energy: %.4f J\n', ...
             r, alive, dead, E_total);
     end
@@ -186,8 +194,7 @@ final_round_2z = r;
 save('two_zone_x_results.mat', ...
     'ALIVE_2Z', 'DEAD_2Z', 'ENERGY_2Z', 'PACKETS_2Z', ...
     'first_dead', 'final_round_2z', 'n', 'rmax',       ...
-    'zone1_nodes', 'zone2_nodes', 'PCH1_id', 'PCH2_id', ...
-    'S', 'BS', 'xm', 'ym', 'zone_boundary');
+    'zone1_nodes', 'zone2_nodes', 'S', 'BS', 'xm', 'ym', 'zone_boundary');
 
 fprintf('\nResults saved → two_zone_x_results.mat\n');
 fprintf('Run compare_protocols.m to compare with original protocol.\n');
@@ -196,17 +203,10 @@ fprintf('Run compare_protocols.m to compare with original protocol.\n');
 figure('Name', 'Two-Zone X PCH Protocol', 'Position', [100 100 1200 800]);
 
 subplot(2,2,1); hold on;
-% Vertical zone boundary
 plot([zone_boundary zone_boundary], [0 ym], 'k--', 'LineWidth', 2, ...
     'DisplayName', 'Zone Boundary');
 for i = 1:n
-    if i == PCH1_id
-        plot(S(i).xd, S(i).yd, 'r^', 'MarkerSize', 14, 'LineWidth', 2, ...
-            'DisplayName', 'PCH1 (X<50)');
-    elseif i == PCH2_id
-        plot(S(i).xd, S(i).yd, 'm^', 'MarkerSize', 14, 'LineWidth', 2, ...
-            'DisplayName', 'PCH2 (X>=50)');
-    elseif S(i).E > 0 && S(i).zone == 1
+    if S(i).E > 0 && S(i).zone == 1
         plot(S(i).xd, S(i).yd, 'bo', 'MarkerSize', 5, 'HandleVisibility', 'off');
     elseif S(i).E > 0 && S(i).zone == 2
         plot(S(i).xd, S(i).yd, 'co', 'MarkerSize', 5, 'HandleVisibility', 'off');
@@ -239,9 +239,9 @@ title('Packets Transmitted'); grid on;
 sgtitle('Two-Zone X PCH Protocol', 'FontSize', 13, 'FontWeight', 'bold');
 
 fprintf('\n=== Two-Zone X PCH Summary ===\n');
-fprintf('Total rounds simulated : %d\n', final_round_2z);
-fprintf('First node death       : Round %d\n', first_dead);
-fprintf('Final alive nodes      : %d\n', alive);
-fprintf('Zone 1 (X<50)          : %d nodes\n', length(zone1_nodes));
-fprintf('Zone 2 (X>=50)         : %d nodes\n', length(zone2_nodes));
+fprintf('Total rounds simulated: %d\n', final_round_2z);
+fprintf('First node death      : Round %d\n', first_dead);
+fprintf('Final alive nodes     : %d\n', alive);
+fprintf('Zone 1 (X < 50)       : %d nodes\n', length(zone1_nodes));
+fprintf('Zone 2 (X >= 50)      : %d nodes\n', length(zone2_nodes));
 fprintf('==============================\n');

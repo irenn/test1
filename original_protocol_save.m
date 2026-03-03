@@ -14,6 +14,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 clear;
 
+% Set ANIMATE = true to watch the per-round node map (very slow for 2000 rounds).
+% Keep false (default) for fast execution and saved results only.
+ANIMATE = false;
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PARAMETERS %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 xm=100;
 ym=100;
@@ -109,7 +113,7 @@ for r=0:1:rmax
         end
     end
 
-    hold off;
+    if ANIMATE; hold off; end
     dead=0;
     dead_a=0;
     dead_n=0;
@@ -118,21 +122,19 @@ for r=0:1:rmax
     PACKETS_TO_CH(r+1)=0;
     PACKETS_TO_BS(r+1)=0;
 
-    figure(1);
+    if ANIMATE; figure(1); end
     for i=1:1:n
         if (S(i).E<=0)
-            plot(S(i).xd,S(i).yd,'red .');
+            if ANIMATE; plot(S(i).xd,S(i).yd,'red .'); hold on; end
             dead=dead+1;
-            hold on;
         end
         if S(i).E>0
             S(i).type='N';
-            plot(S(i).xd,S(i).yd,'o');
-            hold on;
+            if ANIMATE; plot(S(i).xd,S(i).yd,'o'); hold on; end
         end
     end
 
-    plot(S(n+1).xd,S(n+1).yd,'x');
+    if ANIMATE; plot(S(n+1).xd,S(n+1).yd,'x'); end
     STATISTICS(r+1).DEAD=dead;
     DEAD(r+1)=dead;
     DEAD_N(r+1)=dead_n;
@@ -161,7 +163,7 @@ for r=0:1:rmax
                     S(i).G=round(1/S(i).p)-1;
                     C(cluster).xd=S(i).xd;
                     C(cluster).yd=S(i).yd;
-                    plot(S(i).xd,S(i).yd,'k*');
+                    if ANIMATE; plot(S(i).xd,S(i).yd,'k*'); end
                     C(cluster).id=i;
                     X(cluster)=S(i).xd;
                     Y(cluster)=S(i).yd;
@@ -194,7 +196,7 @@ for r=0:1:rmax
         S(pch).type='P';
         P(pch).xd=S(pch).xd;
         P(pch).yd=S(pch).yd;
-        plot(S(pch).xd,S(pch).yd,'g*','Markersize',10,'Linewidth',20);
+        if ANIMATE; plot(S(pch).xd,S(pch).yd,'g*','Markersize',10,'Linewidth',20); end
         P(pch).id=pch;
         X(pch)=S(pch).xd;
         Y(pch)=S(pch).yd;
@@ -246,7 +248,7 @@ for r=0:1:rmax
             S(pch).E=S(pch).E- ( (ETX+EDA)*(4000)  + Efs*4000*( distancePSB * distancePSB ));
             EG=EG+( (ETX+EDA)*(4000)  + Efs*4000*( distancePSB * distancePSB ));
         end
-        plot([S(pch).xd S(n+1).xd],[S(pch).yd S(n+1).yd],'g-.');
+        if ANIMATE; plot([S(pch).xd S(n+1).xd],[S(pch).yd S(n+1).yd],'g-.'); end
     end
 
     STATISTICS(r+1).CLUSTERHEADS=cluster-1;
@@ -279,7 +281,7 @@ for r=0:1:rmax
                     S(C(min_dis_cluster).id).E = S(C(min_dis_cluster).id).E- ( (ERX + EDA)*4000 );
                     EG = EG + ( (ERX + EDA)*4000 );
                     PACKETS_TO_CH(r+1)=n-dead-cluster+1;
-                    plot([S(i).xd S(C(min_dis_cluster).id).xd],[S(i).yd S(C(min_dis_cluster).id).yd],'b-');
+                    if ANIMATE; plot([S(i).xd S(C(min_dis_cluster).id).xd],[S(i).yd S(C(min_dis_cluster).id).yd],'b-'); end
                 end
                 S(i).min_dis=min_dis;
                 S(i).min_dis_cluster=min_dis_cluster;
@@ -287,7 +289,7 @@ for r=0:1:rmax
         end
     end
 
-    hold on;
+    if ANIMATE; hold on; end
     countCHs;
     rcountCHs=rcountCHs+countCHs;
     EnergieGaspiller(r+1) = EG;
